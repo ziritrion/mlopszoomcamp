@@ -1,3 +1,13 @@
+>[Back to index](README.md)
+
+>Next: Coming soon
+
+- [Introduction to MLOps](#introduction-to-mlops)
+- [Environment setup](#environment-setup)
+- [(Optional) Training a model from scratch and reading parquet files](#optional-training-a-model-from-scratch-and-reading-parquet-files)
+- [Course overview](#course-overview)
+- [Maturity model](#maturity-model)
+
 # Introduction to MLOps
 
 _[Video source](https://www.youtube.com/watch?v=s0uaFZSzwfI&list=PL3MmuxUbc_hIUISrluw_A7wDSmfOhErJK&index=2)_
@@ -12,6 +22,8 @@ Machine Learning projects can be simpplified to just 3 steps:
 3. ***Operate*** - model deployment, management and monitoring.
 
 MLOps is helpful in all 3 stages.
+
+_[Back to the top](#)_
 
 # Environment setup
 
@@ -35,6 +47,8 @@ Alternatively, you may also use any other cloud vendor or set up a local environ
 
 >Note: Any additional requirements will be listed as needed during the course.
 
+_[Back to the top](#)_
+
 # (Optional) Training a model from scratch and reading parquet files
 
 This course builds on the [Machine Learning Zoomcamp](https://github.com/alexeygrigorev/mlbookcamp-code/tree/master/course-zoomcamp) and the [Data Engineering Zoomcamp](https://github.com/DataTalksClub/data-engineering-zoomcamp), so for brevity these notes will not cover content that has already been covered there. You may check out my notes for reference:
@@ -49,6 +63,8 @@ The following videos show how to train a model for the purpose of using it later
 You may also access the resulting files from the following links:
 
 * [duration-prediction.ipynd](https://github.com/DataTalksClub/mlops-zoomcamp/blob/main/01-intro/duration-prediction.ipynb)
+
+_[Back to the top](#)_
 
 # Course overview
 
@@ -78,6 +94,8 @@ flowchart LR
 ***Module 6*** covers ***best practices***, such as how to properly maintain and package code, how to deploy successfully, etc.
 
 ***Module 7*** covers ***processes***: we will see how to properly communicate between all the stakeholders of a ML project (scientists, engineers, etc) and how to work together.
+
+_[Back to the top](#)_
 
 # Maturity model
 
@@ -112,3 +130,9 @@ The different levels of MLOps maturity that we will discuss during the course ar
    * Automated training and deployment. All of the above combined.
 
 Be aware that not every project or even every part of a project needs to have the highest maturity level possible because it could exceed the project's resource budget. **Pragmatism is key**.
+
+_[Back to the top](#)_
+
+>[Back to index](README.md)
+
+>Next: Coming soon
