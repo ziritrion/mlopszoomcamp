@@ -28,6 +28,7 @@ Alternatively, you may also use any other cloud vendor or set up a local environ
 * [Anaconda](https://www.anaconda.com/)
   * We will use Python 3.9 for this course.
   * We will also need Jupyter Notebook.
+    * For the optional videos and the homework you will also need pandas, scikit-learn, fastparquet, matplotlib and seaborn.
   * You may check out my [Python environments cheatsheet](https://gist.github.com/ziritrion/8024025672ea92b8bdeb320d6015aa0d) for a refresher on how to use Anaconda to install Python.
 * (Optional) [Visual Studio Code](https://code.visualstudio.com/) and the [Remote - SSH](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-ssh) extension
   * These requirements are not necessary but they make it much easier to connect to remote instances and redirect ports. These notes will assume that you're using both.
@@ -79,3 +80,35 @@ flowchart LR
 ***Module 7*** covers ***processes***: we will see how to properly communicate between all the stakeholders of a ML project (scientists, engineers, etc) and how to work together.
 
 # Maturity model
+
+_[Video source](https://www.youtube.com/watch?v=XwTH8BDGzYk&list=PL3MmuxUbc_hIUISrluw_A7wDSmfOhErJK&index=8)_
+
+The different levels of MLOps maturity that we will discuss during the course are based on the levels listed [in this Microsoft Azure article](https://docs.microsoft.com/en-us/azure/architecture/example-scenario/mlops/mlops-maturity-model). These levels are:
+
+0. ***No MLOps***
+   *  No automation whatsoever, sloppy Jupyter Notebooks.
+   *  Good enough for Proof Of Concept projects.
+1. ***DevOps but no MLOps***
+   * Releases are automated, unit tests and integration tests exist, CI/CD, operational metrics.
+   * But all of these are not ML aware, so no experiment tracking, no reproducibility and the data scientists are still separated from the engineers.
+   * Good for POC and production for some projects.
+2. ***Automated training***
+   * Training pipeline, experiment tracking, model registry. Low friction deployment.
+   * DS work with engineers in the same team.
+3. ***Automated deployment***
+   * Easy to deploy model, very low friction.
+     * ```mermaid
+        flowchart LR
+              direction LR
+              A[Data\n prep]
+              B[Train\n model]
+              C[Deploy\n model]
+              A --> B --> C
+        ```
+   * A/B tests (not covered in this course).
+   * Model monitoring.
+     * The Microsoft article actually places this feature in maturity level 4 but for our purposes it makes more sense to have it here.
+4. ***Full MLOps automation***
+   * Automated training and deployment. All of the above combined.
+
+Be aware that not every project or even every part of a project needs to have the highest maturity level possible because it could exceed the project's resource budget. **Pragmatism is key**.
