@@ -77,7 +77,7 @@ You will need to create a `models` subdirectory in the work directory that you i
 
 You may copy [this notebook from the last lesson's ML refresher](https://github.com/DataTalksClub/mlops-zoomcamp/blob/main/01-intro/duration-prediction.ipynb) and modify it accordingly if you want to follow along.
 
->Note: make sure that the directory you run your notebook is the same in which you run the `mlflow ui` command.
+>Note: make sure that the directory you run your notebook is the same in which you run the `mlflow ui` command. There should be a `mlflow.db` file in the folder.
 
 The first step is importing the MLflow library and setting a couple of important parameters:
 
@@ -141,3 +141,170 @@ with mlflow.start_run():
 Once you're run your code, you may check your experiment and its runs on the web UI. The left column displays your experiments and each row in the main window displays a run. You may change parameters in your notebook and rerun the code, and after refreshing the UI you should see new runs added to your experiment.
 
 You may download a finished notebook with the changes described above [in this link](../2_experiment/duration-prediction_1.ipynb) so that you can test by yourself.
+
+# Experiment tracking with MLflow
+
+_[Video source](https://www.youtube.com/watch?v=iaJz-T7VWec&list=PL3MmuxUbc_hIUISrluw_A7wDSmfOhErJK&index=13)_
+
+We will now see how to track experiments rather than single runs.
+
+## Using hyperopt for hyperparameter tuning
+
+[Hyperopt](https://hyperopt.github.io/hyperopt/) is a library for distributed hyperparameter optimisation. We will use it for tuning our experiments. It can be installed with `pip` or Conda.
+
+The way Hyperopt works is the following:
+1. We define an _objective function_ that we want to minimize.
+2. We define the _space_ over which to search.
+3. We define a _database_ in which to store all the point evaluations of the search.
+4. We define a _search algorithm_ to use.
+
+For our example we use the following imports:
+
+```python
+from hyperopt import fmin, tpe, hp, STATUS_OK, Trials
+from hyperopt.pyll import scope
+```
+* `fmin` is for minimizing the objective function.
+* `tpe` is the algorithm that we will provide for minimizing.
+* `hp` is for defining the search space for hyperparameter tuning.
+* `STATUS_OK` is a signal for letting hyperopt know that the objective function has run successfully.
+* The `Trials` object keeps track of information from each run.
+* `scope` is for defining ranges.
+
+## Defining the objective function
+
+We now have to define an _objective function_. The objective function essentially consists of the model training and validation code and returning metrics. We will use XGBoost for our experiment:
+
+```python
+import xgboost as xgb
+
+#assuming we already have the dataframes in memory, we create the matrices for xgboost
+train = xgb.DMatrix(X_train, label=y_train)
+valid = xgb.DMatrix(X_val, label=y_val)
+
+#params contains the hyperparameters for xgboost for a specific run
+def objective(params):
+
+    with mlflow.start_run():
+
+        #set a tag for easier classification and log the hyperparameters
+        mlflow.set_tag("model", "xgboost")
+        mlflow.log_params(params)
+
+        #model definition and training
+        booster = xgb.train(
+            params=params,
+            dtrain=train,
+            num_boost_round=1000,
+            evals=[(valid, 'validation')],
+            early_stopping_rounds=50
+        )
+
+        #predicting with the validation set
+        y_pred = booster.predict(valid)
+
+        #rmse metric and logging
+        rmse = mean_squared_error(y_val, y_pred, squared=False)
+        mlflow.log_metric("rmse", rmse)
+
+    #we return a dict with the metric and the OK signal
+    return {'loss': rmse, 'status': STATUS_OK}
+```
+* Hyperopt will try to optimize whatever metric that the objective function is returning. We're returning the RMSE, so we will minimize RMSE.
+* We're also returning the `STATUS_OK` signal to let hyperopt know if the optimization was successful.
+* We return a dictionary because we will need to provide one later on when trying to minimize the function. The `loss` and `status` key-value pairs are mandatory.
+
+## Defining the search space
+
+The ***search space*** refers to the ranges in which we want Hyperopt to explore the hyperparameters.
+
+[Hyperopt's official docs](https://hyperopt.github.io/hyperopt/getting-started/search_spaces/) have a very detailed guide on [how to define search spaces](https://hyperopt.github.io/hyperopt/getting-started/search_spaces/). Here's an example for our exercise:
+
+```python
+search_space = {
+    'max_depth': scope.int(hp.quniform('max_depth', 4, 100, 1)),
+    'learning_rate': hp.loguniform('learning_rate', -3, 0),
+    'reg_alpha': hp.loguniform('reg_alpha', -5, -1),
+    'reg_lambda': hp.loguniform('reg_lambda', -6, -1),
+    'min_child_weight': hp.loguniform('min_child_weight', -1, 3),
+    'objective': 'reg:linear',
+    'seed': 42
+}
+```
+* We define a dict with all the hyperparameters we want to explore and finetune.
+* We use _stochastic expressions_ to define our parameter search. All expressions require a _label_ parameter (the first param in all functions above).
+* `hp.quniform()` returns a "quantized" value uniformly between `a` and `b`. In other words: it returns **discreet** values in intervals of `q` following a uniform distribution between `a` and `b`.
+  * In this example, we're searching for values between 4 and 100 for our `max_depth` hyperparam.
+* `scope.int()` is for defining a range of integers. `hp.quniform()` returns floats, so we need `scope.int()` if we want to use integers.
+* `hp.loguniform()` returns the exponential of a number between `a` and `b` following a uniform distribution.
+  * `hp.loguniform('learning_rate', -3, 0)` returns a value between `0.05` and `1` which grows exponentially, similar to how we usually test learning rates in decimal increments such as `0.001`, then `0.01` and `0.1`.
+
+## Passing information to `fmin`
+
+We've already defined the objective function and the search space; now we need to minimize the objective function by calling the `fmin` method and passing all of the necessary info:
+
+```python
+best_result = fmin(
+    fn=objective,
+    space=search_space,
+    algo=tpe.suggest,
+    max_evals=50,
+    trials=Trials()
+)
+```
+* `fn` receives our objective function.
+* `space` receives our search space.
+* `algo` defines the _search algorithm_ that we wil use.
+  * `tpe` stands for [Tree of Parzen Estimators](https://papers.nips.cc/paper/4443-algorithms-for-hyper-parameter-optimization.pdf), an algorithm for hyperparameter optimization.
+  * `tpe.suggest` is the default choice for almost all projects. For dummy projects, you could use `hyperopt.random.suggest` instead.
+* `max_evals` defines the maximum amount of evaluation iterations for hyperparameter search.
+* `trials` receives and object which will store all of the experiment info.
+  * `Trials()` is a method that returns such an object for us.
+  * The object receives all of the dictionaries returned by the objective function and stores them.
+
+## Running the experiment and comparing results
+
+Executing the last code block will start the experiment. Hyperopt will perform multiple runs trying to seach for the best hyperparameters, and you can see each of them in the MLflow UI.
+
+By searching for the `xgboost` tag you can select all runs and compare them in a graph to see how the different hyperparams affect the RMSE:
+* The _Parallel Coordinates Plot_ draws a line chart with all the hyperparam values. Very useful to quickly see any possible correlations between hyperparam values and RMSE.
+* The _Scatter Plot_ is for comparing 2 specific variables, such as a hyperparm and the RMSE. It can also be helpful to uncover patterns.
+* _Contour Plot_ is similar to _Scatter Plot_ but it allows you to add an additional variable to the comparison in the form of a contour map.
+
+You can also sort the search results to see which model has the lowest RMSE. Keep in mind that you might not always want the lowest error: for complex models, the lowest error might be too heavy and complex for your needs, so choose according to your needs and the hyperparam results.
+
+## Retraining with the optimal hyperparams and automatic logging
+
+We now know the best hyperparams for our model but we have not saved the weights; we've only tracked the hyperparam values. But since we already know the best hyperparams, we can retrain the model with them and save the model with MLflow. Simply define the params and the training code wrapped with the `with mlflow.start_run()` statement, define a tag and track all metrics and artifacts that you need.
+
+However, there is a better way. MLflow has support for ***automatic logging*** for [a few ML frameworks](https://www.mlflow.org/docs/latest/tracking.html#automatic-logging). Automatic logging allows us to track pretty much any info that we may need without having to manually specify all the data and artifacts to track. Here's an example:
+
+```python
+params = {
+  'learning_rate': 0.09585355369315604,
+  'max_depth': 30,
+  'min_child_weight': 1.060597050922164,
+  'objective': 'reg:linear',
+  'reg_alpha': 0.018060244040060163,
+  'reg_lambda': 0.011658731377413597,
+  'seed': 42
+}
+
+mlflow.xgboost.autolog()
+
+booster = xgb.train(
+  params=best_params,
+  dtrain=train,
+  num_boost_round=1000,
+  evals=[(valid, 'validation')],
+  early_stopping_rounds=50
+)
+```
+
+Running this code will create a new run and track all relevant hyperparams, metrics and artifacts for XGBoost.
+
+Keep in mind that training time will likely be slightly longer than the run with the same hyperparams when searching with Hyperopt due to MLflow logging lots of data.
+
+In the MLflow web UI you can see all of the logged data, including a `requirements.txt` file for replicating the environment used for the experiment and code snippets to load the stored model and run predictions.
+
+>Note: you may find a notebook with all of the code we've seen in this block [in this link](../2_experiment/duration-prediction_2.ipynb)
