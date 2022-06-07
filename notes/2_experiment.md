@@ -1,5 +1,7 @@
 # Intro to Experiment Tracking
 
+_[Video source](https://www.youtube.com/watch?v=MiA7LQin9c8&list=PL3MmuxUbc_hIUISrluw_A7wDSmfOhErJK&index=12)_
+
 ## Definition of Experiment Tracking
 
 ***Experiment tracking*** (ET) is the process of keeping track of all the ***relevant information*** from an ***ML experiment***, which may include:
@@ -119,22 +121,11 @@ with mlflow.start_run():
     rmse = mean_squared_error(y_val, y_pred, squared=False)
     #and we're also logging metrics
     mlflow.log_metric("rmse", rmse)
-
-    #finally, we log our artifacts (our models in this case)
-    mlflow.log_artifact(local_path="models/lin_reg.bin", artifact_path="models_pickle")
 ```
 * `mlflow.start_run()` returns the current active run, if one exists. The returned object is a [Python context manager](https://docs.python.org/2.5/whatsnew/pep-343.html), which means that we can use the `with` statement to wrap our experiment code and the run will automatically close once the statement exits.
 * `mlflow.set_tag()` creates a key-value tag in the current active run.
 * `mlflow.log_param()` logs a single key-value param in the current active run.
 * `mlflow.log_metrics()` logs a single key-value metric, which must always be a number. MLflow will remember the value history for each metric.
-* `mlflow.log_artifact()` logs a local file or directory as an artifact.
-    * `local_path` is the path of the file to write.
-    * `artifact_path` is the directory in `artifact_uri` to write to.
-    * In this example, `models/lin_reg.bin` existed beforehand because we had created it in a code block similar to this:
-        ```python
-        with open('models/lin_reg.bin', 'wb') as f_out:
-            pickle.dump((dv, lr), f_out)
-        ```
 
 ## Viewing experiments on the web UI
 
@@ -275,7 +266,7 @@ You can also sort the search results to see which model has the lowest RMSE. Kee
 
 ## Retraining with the optimal hyperparams and automatic logging
 
-We now know the best hyperparams for our model but we have not saved the weights; we've only tracked the hyperparam values. But since we already know the best hyperparams, we can retrain the model with them and save the model with MLflow. Simply define the params and the training code wrapped with the `with mlflow.start_run()` statement, define a tag and track all metrics and artifacts that you need.
+We now know the best hyperparams for our model but we have not saved the weights; we've only tracked the hyperparam values. But since we already know the best hyperparams, we can retrain the model with them and save the model with MLflow. Simply define the params and the training code wrapped with the `with mlflow.start_run()` statement, define a tag and track all metrics and parameters that you need.
 
 However, there is a better way. MLflow has support for ***automatic logging*** for [a few ML frameworks](https://www.mlflow.org/docs/latest/tracking.html#automatic-logging). Automatic logging allows us to track pretty much any info that we may need without having to manually specify all the data and artifacts to track. Here's an example:
 
@@ -307,4 +298,138 @@ Keep in mind that training time will likely be slightly longer than the run with
 
 In the MLflow web UI you can see all of the logged data, including a `requirements.txt` file for replicating the environment used for the experiment and code snippets to load the stored model and run predictions.
 
->Note: you may find a notebook with all of the code we've seen in this block [in this link](../2_experiment/duration-prediction_2.ipynb)
+You may find a notebook with all of the code we've seen in this block [in this link](../2_experiment/duration-prediction_2.ipynb).
+
+# Model management
+
+_[Video source](https://www.youtube.com/watch?v=OVUPIX88q88&list=PL3MmuxUbc_hIUISrluw_A7wDSmfOhErJK&index=14)_
+
+So far we've seen _Experiment Tracking_, which handles model architecture, training and evaluation. ***Model Management*** would be the next step in MLops and handles model versioning and deployment, as well as hardware scaling. In this block we will see how to use MLflow for Model Management.
+
+![Source: https://neptune.ai/blog/mlops](https://i0.wp.com/neptune.ai/wp-content/uploads/MLOps_cycle.jpg?resize=1024%2C576&ssl=1)
+
+## Model tracking
+
+Just like we saw with using a spreadsheet for experiment tracking, you could simply use a folder hyerarchy for model management. However, this simple management technique has the same weaknesses as the spreadsheet did:
+* ***Error prone***: humans are messy and manually renaming folders and files and moving them around will surely result in mistakes down the line.
+* ***No versioning***: you could use the filenames for versioning but it's likely you will mix the numbers up.
+* ***No model lineage***: it's not easy to understand how all of your models were created, what the hyperparams were, etc.
+
+In order to solve these issues, we can use MLflow for tracking our models.
+
+## Tracking artifacts
+
+Besides parameters and metrics, MLflow can also track ***artifacts***, such as our model weights.
+
+Tracking an artifact is just like tracking any other element in MLflow. The simplest way of model management is simply to track the model as an artifact. Here's the same Scikit-Learn code we saw before with a new line at the end:
+
+```python
+with mlflow.start_run():
+
+    mlflow.set_tag("developer", "cristian")
+
+    mlflow.log_param("train-data-path", "./data/green_tripdata_2021-01.csv")
+    mlflow.log_param("valid-data-path", "./data/green_tripdata_2021-02.csv")
+
+    alpha = 0.1
+    mlflow.log_param("alpha", alpha)
+
+    lr = Lasso(alpha)
+    lr.fit(X_train, y_train)
+
+    y_pred = lr.predict(X_val)
+    rmse = mean_squared_error(y_val, y_pred, squared=False)
+    mlflow.log_metric("rmse", rmse)
+
+    #Tracking our model
+    mlflow.log_artifact(local_path="models/lin_reg.bin", artifact_path="models_pickle")
+```
+* `mlflow.log_artifact()` logs a local file or directory as an artifact.
+    * `local_path` is the path of the file to write.
+    * `artifact_path` is the directory in `artifact_uri` to write to.
+    * In this example, `models/lin_reg.bin` existed beforehand because we had created it in a code block similar to this:
+        ```python
+        with open('models/lin_reg.bin', 'wb') as f_out:
+            pickle.dump((dv, lr), f_out)
+        ```
+
+## Model logging
+
+The limitation with artifact tracking for model management is that it's cumbersome to search for a specific model, download the bin file and create the code to load it and run predictions.
+
+There's a better way of managing models. We'll use the XGBoost code from before as an example; pay attention to the last line:
+
+```python
+#For the purpose of this example, let's turn off autologging
+mlflow.xgboost.autolog(disable=True)
+
+with mlflow.start_run():
+    
+    train = xgb.DMatrix(X_train, label=y_train)
+    valid = xgb.DMatrix(X_val, label=y_val)
+
+    best_params = {
+        'learning_rate': 0.09585355369315604,
+        'max_depth': 30,
+        'min_child_weight': 1.060597050922164,
+        'objective': 'reg:linear',
+        'reg_alpha': 0.018060244040060163,
+        'reg_lambda': 0.011658731377413597,
+        'seed': 42
+    }
+
+    mlflow.log_params(best_params)
+
+    booster = xgb.train(
+        params=best_params,
+        dtrain=train,
+        num_boost_round=1000,
+        evals=[(valid, 'validation')],
+        early_stopping_rounds=50
+    )
+
+    y_pred = booster.predict(valid)
+    rmse = mean_squared_error(y_val, y_pred, squared=False)
+    mlflow.log_metric("rmse", rmse)
+
+    #Model tracking
+    mlflow.xgboost.log_model(booster, artifact_path="models_mlflow")
+```
+
+MLflow offers model logging for specific frameworks. `mlflow.xgboost.log_model()` takes our model object and stores it in the provided path.
+
+>Note: we disabled autologging and manually tracked all the relevant data for our purposes. You could enable autolog instead and the model would also be logged.
+
+We can also log the DictVectorizers we used to preprocess our data because we will need them if we want to run new predictions later. Just add this code right before the last line:
+
+```python
+with open("models/preprocessor.b", "wb") as f_out:
+    pickle.dump(dv, f_out)
+mlflow.log_artifact("models/preprocessor.b", artifact_path="preprocessor")
+```
+
+If you run the code again, you should now see a new folder in the Artifacts section on the web UI with the preprocessors.
+
+## Making predictions
+
+You may have noticed that there are code snippets next to the model artifacts that teach you how to make predictions with the logged models.
+
+MLflow actually stores the model in a format that allows us to load it in different "flavors". For example, our XGBoost model can be loaded as an XGBoost model or as a PyFuncModel:
+
+```python
+logged_model = 'runs:/.../models_mlflow'
+
+#Load model as a PyFuncModel
+loaded_model = mlflow.pyfunc.load_model(logged_model)
+
+#Load model as a XGBoost model
+xgboost_model = mlflow.xgboost.load_model(logged_model)
+```
+
+The loaded models are regular objects of their respective framework "flavor" and thus can use all of their usual methods:
+
+```python
+y_pred = xgboost_model.predict(valid)
+```
+
+You may download a finished notebook with all of the code [from this link](../2_experiment/duration-prediction_3.ipynb).
