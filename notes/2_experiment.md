@@ -433,3 +433,248 @@ y_pred = xgboost_model.predict(valid)
 ```
 
 You may download a finished notebook with all of the code [from this link](../2_experiment/duration-prediction_3.ipynb).
+
+# Model registry
+
+_[Video source](https://www.youtube.com/watch?v=TKHU7HAvGH8&list=PL3MmuxUbc_hIUISrluw_A7wDSmfOhErJK&index=15)_
+
+## What is a model registry?
+
+A ***model registry*** is a tool that allows us to track models along with all of the necessary info for reuse and deployment, such as preprocessors, training datasets, etc. Model registries are a sophisticated solution for sharing models between colleagues and documenting all of the necessary metadata for us to keep experimenting, building upon previous work and deploy successfully.
+
+In the previous sections we made use of MLflow's _local tracking server_ for tracking all of our experiments. MLflow also offers a model registry: a Data Scientist can experiment and develop models using the tracking server to track them, and once she feels the model is ready for deployment, she can ***register*** the model in the registry so that the Deployment Engineer can deploy it.
+
+MLflow's Model Registry offers different _stages_ (labels) for the models, such as ***staging***, ***production*** and ***archive***. The Deployment Engineer may inspect a newly registered model and assign it to a stage as needed.
+
+>Note: regarding model analysis, a model with the lowest error or highest accuracy may not necessarily be the best model for your needs; there are other parameters such as model size and training/inference time that may affect the final deployment. You (or the Deployment Engineer) should choose according to the needs and goals of the project. MLflow gives you these values in order to make the choice easier.
+
+Keep in mind that the model registry does not take care of deployment; it's simply there for easy storage and retrieval. You may have to combine the registry with CI/CD practices in order to achive a more mature MLOps level.
+
+## Promoting models to the model registry
+
+Once you've analyzed the different models of your experiment, you may decide to promote one or more to the Model Registry.
+
+In the Runs page of the MLflow web UI, in the Artifacts section, after choosing a model you should see a blue button appear with the text `Register Model` in it. Once you click it, a new window will appear asking for a model name; give it any of your liking. If you're promoting multiple models of the same experiment, you may choose the same name for all of them (a drop-down menu should display any existing models) and the registry will track them as different versions.
+
+You may access the Registry by clicking on the `Models` tab at the top of the web UI. Clicking on it will display all of the registered models; you may click on one to see all of the available versions for that model. From this model page you may also add a description to provide any relevant info as well as tags for each version.
+
+## Transitioning models to stages
+
+By default, any registered model will be assigned to the `None` stage.
+
+From the model version page, you may transition a model version to a different stage with the _Stage_ drop-down menu near the top of the page. Clicking on any of the available options will show a pop-up window giving you the option to transition older models in the chosen stage to the `archived` stage.
+
+## Interacting with the tracking and registry server with Python
+
+We can use the MLflow library to access the model registry and load any promoted models by means of a `MLflowClient` object provided by MLflow.
+
+```python
+from mlflow.tracking import MlflowClient
+
+MLFLOW_TRACKING_URI = "sqlite:///mlflow.db"
+
+client = MlflowClient(tracking_uri=MLFLOW_TRACKING_URI)
+```
+* We define the tracking server URI like in previous code examples.
+* The `client` object can interact with experiments, runs and models in the registry.
+
+The `MLflowClient` object allows us to interact with a tracking server as well as a registry server. Since we're running both the tracking and registry server locally on the same instance, a single URI allows us to access both because they're actually a single process.
+
+### Interacting with the tracking server
+
+Now that we've instantiated the `client` object, we can access the tracking server data, such as our experiments:
+
+```python
+# List all available experiments
+client.list_experiments()
+```
+
+We could create a new experiment as well:
+```python
+client.create_experiment(name="my-cool-experiment")
+```
+* You should now see a new experiment in the web UI, similarly to how we created an experiment with `mlflow.set_experiment("nyc-taxi-experiment")`.
+
+Let's now search and display our previous runs:
+```python
+from mlflow.entities import ViewType
+
+runs = client.search_runs(
+    experiment_ids='1',
+    filter_string="metrics.rmse < 7",
+    run_view_type=ViewType.ACTIVE_ONLY,
+    max_results=5,
+    order_by=["metrics.rmse ASC"]
+)
+
+for run in runs:
+    print(f"run id: {run.info.run_id}, rmse: {run.data.metrics['rmse']:.4f}")
+```
+* `experiment_ids` receives a string with the experiment ID we want to search runs in. In this case, the ID `1` should be the `nyc-taxi-experiment` from the beginning of the lesson.
+* `filter_string` is a filtering query.
+  *  In this case, we only want those runs with a RMSE value smaller than 7.
+* `run_view_type` receives an enum with the type of runs we want to see.
+  * The alternatives to `ViewType.ACTIVE_ONLY` (active runs, the default value) would be `ViewType.ALL` and `ViewType.DELETED_ONLY`.
+* `max_results` limits the amount of results that `search_runs()` will return.
+* `order_by` receives a list because you can include multiple order criteria.
+  * In this case, we order by RMSE in ascending order.
+
+This block of code should return something similar to this:
+```
+run id: 7db08e4f93af4ee1bcbce1d8a763e23a, rmse: 6.3040
+run id: a06a6b594fff409cb0d34e203b49f33f, rmse: 6.7423
+run id: b8904012c84343b5bf8ee72aa8f0f402, rmse: 6.9047
+run id: 54493fed643c4952be5232279e309053, rmse: 6.9213
+```
+
+You can check the web UI and see that the run ID's should match these.
+
+### Promoting a model to the registry
+
+We can also programatically promote a model to the registry. We don't actually need the `client` object to do this:
+
+```python
+import mlflow
+
+mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+
+run_id = "b8904012c84343b5bf8ee72aa8f0f402"
+model_uri = f"runs:/{run_id}/model"
+mlflow.register_model(model_uri=model_uri, name="nyc-taxi-regressor")
+```
+* We need to provide a URI to register the model, so we compose it based on the model path as stored by the tracking server.
+* We also provide the model name in order to promote the model as a version of a previously existing model, if desired so.
+
+### Transitioning a model to a new stage
+
+We can also transition a model to a new stage.
+
+First, we need to find which model version we want to transition:
+
+```python
+model_name = "nyc-taxi-regressor"
+latest_versions = client.get_latest_versions(name=model_name)
+
+for version in latest_versions:
+    print(f"version: {version.version}, stage: {version.current_stage}")
+```
+
+This code block should return the version ID's as well as the stage they are currently assigned to.
+
+Let's assume we want to transition model ID 4:
+
+```python
+model_version = 4
+new_stage = "Staging"
+client.transition_model_version_stage(
+    name=model_name,
+    version=model_version,
+    stage=new_stage,
+    archive_existing_versions=False
+)
+```
+
+As you can see, the parameters in the `transition_model_version_stage()` function are pretty self-explanatory and mirror the options available in the web UI.
+
+We can also annotate the model version, like in the web UI. Let's add a description in which we say that we transitioned the model today:
+
+```python
+from datetime import datetime
+date = datetime.today().date()
+
+client.update_model_version(
+    name=model_name,
+    version=model_version,
+    description=f"The model version {model_version} was transitioned to {new_stage} on {date}"
+)
+```
+
+### Comparing models
+
+We can also do the same model analysis we did in the web UI to choose the best model for our needs.
+
+Let's assume that we want to use the [March 2021 green taxi data](https://s3.amazonaws.com/nyc-tlc/trip+data/green_tripdata_2021-03.parquet) from the [NYC TLC Trip Record dataset](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page). The following code will load the dataframe as well as preprocess it and test a model with the preprocessed data:
+
+```python
+from sklearn.metrics import mean_squared_error
+import pandas as pd
+
+
+def read_dataframe(filename):
+    df = pd.read_parquet(filename)
+
+    df.lpep_dropoff_datetime = pd.to_datetime(df.lpep_dropoff_datetime)
+    df.lpep_pickup_datetime = pd.to_datetime(df.lpep_pickup_datetime)
+
+    df['duration'] = df.lpep_dropoff_datetime - df.lpep_pickup_datetime
+    df.duration = df.duration.apply(lambda td: td.total_seconds() / 60)
+
+    df = df[(df.duration >= 1) & (df.duration <= 60)]
+
+    categorical = ['PULocationID', 'DOLocationID']
+    df[categorical] = df[categorical].astype(str)
+    
+    return df
+
+
+def preprocess(df, dv):
+    df['PU_DO'] = df['PULocationID'] + '_' + df['DOLocationID']
+    categorical = ['PU_DO']
+    numerical = ['trip_distance']
+    train_dicts = df[categorical + numerical].to_dict(orient='records')
+    return dv.transform(train_dicts)
+
+
+def test_model(name, stage, X_test, y_test):
+    model = mlflow.pyfunc.load_model(f"models:/{name}/{stage}")
+    y_pred = model.predict(X_test)
+    return {"rmse": mean_squared_error(y_test, y_pred, squared=False)}
+
+
+df = read_dataframe("data/green_tripdata_2021-03.parquet")
+```
+* Note that `test_model()` will load the provided model as a pyfunc model.
+  * Remember that MLflow models are stored in a generic format and may be loaded by different means.
+
+Let's now get the preprocessor we want to use from the registry:
+```python
+#run_id was defined previously as this:
+#run_id = "b8904012c84343b5bf8ee72aa8f0f402"
+client.download_artifacts(run_id=run_id, path='preprocessor', dst_path='.')
+```
+* We download an artifact with `download_artifacts()`.
+  * We provide a run id that we previously defined.
+  * When providing an ID we also need to provide a path relative to the run's root directory containing the artifacts to download.
+  * `dst_path` is the path of the local filesystem destination directory to which to download the specified artifacts. In this example, we download to the same folder that contains our code.
+
+And now let's load the preprocessor and prepare our data:
+```python
+import pickle
+
+with open("preprocessor/preprocessor.b", "rb") as f_in:
+    dv = pickle.load(f_in)
+
+X_test = preprocess(df, dv)
+
+target = "duration"
+y_test = df[target].values
+```
+
+We are now ready to test our models. Since we're using a Jupyter Notebook, we can use some magic commands such as `%time` to benchmark our models
+
+```python
+#We defined model_name in a previous code block:
+#model_name = "nyc-taxi-regressor"
+```
+
+```python
+%time test_model(name=model_name, stage="Production", X_test=X_test, y_test=y_test)
+```
+
+```python
+%time test_model(name=model_name, stage="Staging", X_test=X_test, y_test=y_test)
+```
+
+Once we've got our results, we can decide which model to keep and use `transition_model_version_stage()` to transition the chosen model to production while archiving any previous production models.
+
+>Note: you may download a completed notebook with all of the code in this block [from this link](../2_experiment/model-registry.ipynb)
