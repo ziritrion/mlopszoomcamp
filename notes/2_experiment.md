@@ -678,3 +678,190 @@ We are now ready to test our models. Since we're using a Jupyter Notebook, we ca
 Once we've got our results, we can decide which model to keep and use `transition_model_version_stage()` to transition the chosen model to production while archiving any previous production models.
 
 >Note: you may download a completed notebook with all of the code in this block [from this link](../2_experiment/model-registry.ipynb)
+
+# MLflow in practice
+
+_[Video source](https://www.youtube.com/watch?v=1ykg4YmbFVA&list=PL3MmuxUbc_hIUISrluw_A7wDSmfOhErJK&index=18)_
+
+Not every ML workflow is the same and the usage of tools such as MLflow may vary depending on context. Remember: ***pragmatism is key***.
+
+## Configuring MLflow
+
+There are 3 main components that you need to configure in MLflow in order to adapt it to your needs:
+
+* **Backend store**: the place where MLflow stores all the metadata of your experiments (metrics, parameters, tasks...).
+  * _Local filesystem_: by default, the metadata will be saved in your local filesystem.
+  * _SQLAlchemy compatible DB_: you may want to configure a DB such as SQLite [like we did before](#installing-and-running-mlflow) for storing the metadata. Using a DB enables us to use the **model registry**.
+* **Artifacts store**: where your models and artifacts are stored.
+  * _Local filesystem_: the default option.
+  * _Remote_: e.g. an S3 bucket.
+* **Tracking server**: you need to decide whether you need to run a tracking server or not.
+  * _No tracking server_: enough for one-man teams for tasks such as competitions.
+  * _Localhost_: good for single data scientists in dev teams that don´t need to share results with other scientists.
+  * _Remote_: better for teamwork and sharing.
+
+Let´s see how to configure these 3 components in different scenarios.
+
+## Scenario 1: one man team, informal
+
+(The actual scenario in the video is _A single data scientits participating in a ML competition_).
+
+This scenario is defined as follows:
+
+* Backend store: local filesystem
+* Artifacts store: local filesystem
+* Tracking server: no
+  * Remember: we cannot use the tracking server unless we define a DB for our backend store. We can still explore the experiments locally by launching the MLflow UI.
+
+Since we're using the default option (local filesystem) for both backend and artifact stores, we don't need to do any extra steps after importing the library:
+
+```python
+import mlflow
+
+# This line will print the path to the local folder in which the bakend and artifacts will be stored
+# The folder will be inside the same folder in which you run this code
+print(f"tracking URI: '{mlflow.get_tracking_uri()}'")
+```
+
+You may note that the folder printed in the previous code block (something like `mlruns`) may not exist; the folder will be created once we start interacting with MLflow. For example, you may run this line:
+
+```python
+mlflow.list_experiments()
+```
+
+And the folder will be created. You may also see that only one experiment exists (the default one), which is created as soon as you run the previous line.
+
+Inside this folder you will see another folder named after the experiment ID which contains a YAML file with all the experiment data. This is how MLflow keeps track of data when the local filesystem is used as a backend store. Alongside the YAML file you may find a number of folders, one for each run of the experiment; we have not made any runs for the default experiment so there should be zero folders inside the default experiment folder.
+
+After running some code and storing some artifacts, you may end up with multiple experiments with multiple runs. Here's what the folder structure may end up looking like:
+
+* **mlruns**
+  * **0**
+    * meta.yaml
+  * **1**
+    * _49441ac587fb43728a03b9760896042a_ (or any other number)
+      * **artifacts** - contains models and other artifacts. Filled with the `log_model()` method, among others.
+      * **metrics** - contains the logged metrics. Filled with the `log_metric()` method, among others.
+      * **params** - contains any logged parameters of interest. Filled with the `log_params()` method, among others.
+      * **tags**
+      * meta.yaml
+    * meta.yaml
+
+Since we did not set up a backend store DB, we cannot access the model regisgtry. However, we can still access the web UI to explore our experiments. In a terminal, go to the same folder where we've run the code and run the following command to enable it:
+
+```bash
+mlflow ui
+```
+
+Now browse to `127.0.0.1:5000` to see the experiments on the left sidebar.
+
+>Note: if you only see the default experiment, you did not execute the command from the correct directory. Make sure that you run the command from the same directory in which the `mlruns` folder was created when you run your code.
+
+You may find a finished notebook with all of the code explained above [in this link](../2_experiment/scenarios/scenario-1.ipynb).
+
+## Scenario 2: cross-functional team, single data scientist
+
+(The actual scenario in the video is _A cross-functional team with one data scientist working on an ML model_).
+
+This scenario is defined as follows:
+
+* Backend store: sqlite database
+* Artifacts store: local filesystem
+* Tracking server: yes, local filesystem
+
+A single data scientist in a cross-functional dev team may have to interact with backend or frontend developers, or even with the product manager, and show them the progress of the model and how it's being built. A local tracking server will be enough for this setup.
+
+In order to use the sqlite database as a backend store, we need to initialize MLflow from a terminal with the following command:
+
+```bash
+mlflow server --backend-store-uri sqlite:///backend.db --default-artifact-root ./artifacts_local
+```
+* This command will initialize the actual server rather than just the UI.
+* The `--default-artifact-root` param is needed in order to let MLflow know where in the local filesystem to store the artifacts.
+  * As written above, the chosen directory to store the artifacts will be `artifacts_local` within the same directory in which you run the command.
+
+With the server running, you now need to connect the MLflow library to the server from your code:
+
+```python
+import mlflow
+
+mlflow.set_tracking_uri("http://127.0.0.1:5000")
+```
+
+When you run your experiments, you will see that the `artifacts_local` folder will be created but the `mlruns` folder with all of the experiment metadata will be missing; all that metadata is now stored in the sqlite database, which should now appear as the `backend.db` file in your work directory.
+
+In order to interact with the model registry we need to connect to it first:
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient("http://127.0.0.1:5000")
+```
+
+We can list all of our registered models:
+
+```python
+client.list_registered_models()
+```
+
+And we can also register new models:
+
+```python
+run_id = client.list_run_infos(experiment_id='1')[0].run_id
+mlflow.register_model(
+    model_uri=f"runs:/{run_id}/models",
+    name='iris-classifier'
+)
+```
+* Note that `experiment_id` in the first line should contain the experiment ID you want to interact with.
+
+You can also access the MLflow UI by browsing to `127.0.0.1:5000` as usual
+
+>Note: if you already run the MLflow UI in scenario 1 and cannot load the web UI due to an error, delete your browser's browsing data (cookies, etc) and reload the page.
+
+You may find a finished notebook with all of the code explained above [in this link](../2_experiment/scenarios/scenario-2.ipynb).
+
+## Scenario 3: multiple data scientists working on multiple ML models
+
+The last scenario we will cover is as follow:
+
+* Backend store: Postgresql database (AWS RDS)
+* Artifacts store: remote (AWS S3 bucket)
+* Tracking server: yes, remote (AWS EC2)
+
+(This block assumes you've got some knowledge on AWS and you can setup an EC2 instance, an S3 bucket and an AWS RDS Postgresql database. You may find instructions on how to set up all of these [in this link from the official DataTalks ML-OPS repo](https://github.com/DataTalksClub/mlops-zoomcamp/blob/main/02-experiment-tracking/mlflow_on_aws.md).)
+
+When you have multiple people experimenting and building models, setting up a remote tracking server is worth the effort to improve collaboration.
+
+Starting a remote MLflow server is similar to a local one. Assuming you've properly set up an S3 bucket, a Postgresql database and allowed remote access from your EC2 instance to the database, log in to your instance and start the server:
+
+```bash
+mlflow server -h 0.0.0.0 -p 5000 --backend-store-uri postgresql://DB_USER:DB_PASSWORD@DB_ENDPOINT:5432/DB_NAME --default-artifact-root s3://S3_BUCKET_NAME
+```
+* `-h` is short for `--host`. Since we're running the command on the remote server, `0.0.0.0` is the proper address.
+* `-p` is short for `--port`. The default port for Postgresql is `5432`.
+* Change all the names in all caps for your values.
+  * `DB_USER` and `DB_PASSWORD` should be the _master username_ and password you set up when creating the RDS database.
+  * `DB_ENDPOINT` should be the endpoint URL for the database. You can find it under _Connectivity & security_ in _Amazon RDS_ > _Databases_.
+  * `DB_NAME` should be the initial database name used during RDS setup.
+  * `S3_BUCKET_NAME` should be the path to your bucket.
+
+Once the command has run successfully, you can get the URL for your EC2 instance in the AWS EC2 console and browse to `ec2-instance-url.amazonaws.com:5000` to load the MLflow UI.
+
+Before running any code, it's recommended that you install the [AWS CLI tools](https://aws.amazon.com/es/cli/) to your computer and set up [default credentials and region](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/setup.html#setup-credentials). With that out of the way, connecting our code to the tracking server only requires 2 extra lines:
+
+```python
+import mlflow
+import os
+
+os.environ["AWS_PROFILE"] = "" # fill in with your AWS profile. More info: https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/setup.html#setup-credentials
+
+TRACKING_SERVER_HOST = "" # fill in with the public DNS of the EC2 instance
+mlflow.set_tracking_uri(f"http://{TRACKING_SERVER_HOST}:5000")
+```
+
+Just add the AWS profile name you defined with the AWS CLI tools and your tracking server URL to the code above.
+
+The rest of the MLflow code (listing experiments, logging metrics, parameters and artifacts, registering models) is identical to what we've seen in previous scenarios, but you might experience slight delays when interacting with the server due to it being a remote instance rather than a local one.
+
+You may find a finished notebook with all of the code explained above [in this link](../2_experiment/scenarios/scenario-3.ipynb).
