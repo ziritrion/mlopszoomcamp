@@ -766,7 +766,7 @@ You may find a finished notebook with all of the code explained above [in this l
 This scenario is defined as follows:
 
 * Backend store: sqlite database
-* Artifacts store: local filesystem
+* Artifact store: local filesystem
 * Tracking server: yes, local filesystem
 
 A single data scientist in a cross-functional dev team may have to interact with backend or frontend developers, or even with the product manager, and show them the progress of the model and how it's being built. A local tracking server will be enough for this setup.
@@ -865,3 +865,50 @@ Just add the AWS profile name you defined with the AWS CLI tools and your tracki
 The rest of the MLflow code (listing experiments, logging metrics, parameters and artifacts, registering models) is identical to what we've seen in previous scenarios, but you might experience slight delays when interacting with the server due to it being a remote instance rather than a local one.
 
 You may find a finished notebook with all of the code explained above [in this link](../2_experiment/scenarios/scenario-3.ipynb).
+
+# Benefits, issues, limitations and alternatives to MLflow
+
+_[Video source](https://www.youtube.com/watch?v=Lugy1JPsBRY&list=PL3MmuxUbc_hIUISrluw_A7wDSmfOhErJK&index=18)_
+
+## Benefits of running a remote MLflow server
+
+Running a remote MLflow server as seen in [Scenario 3 of the previous block](#scenario-3-multiple-data-scientists-working-on-multiple-ml-models) offers certain advantages, such as:
+
+* Easily sharing experiments with other data scientists.
+* Easy collaboration with other team members for building and deploying models thanks to the model registry.
+* It gives more visibility to the efforts of the data science team to managers and supervisors.
+
+## Issues of running a remote MLflow server
+
+There are however a few issues that you must take into account when running a remote server:
+
+* **Security**: MLflow does not have strong user management and authentication capabilities and by default it's wide open to external users.
+  * You must restrict access to the server. VPN's are useful for this.
+* **Scalability**: MLflow does not scale well to a high amount of experiments or users.
+  * Check out possible solutions to this issue:
+    * [Deploy MLflow on AWS Fargate](https://github.com/aws-samples/amazon-sagemaker-mlflow-fargate)
+    * [MLflow at Company Scale](https://databricks.com/session_eu20/mlflow-at-company-scale)
+* **Isolation**: due to poor user management, there is no easy way in MLflow to separate experiments between teams.
+  * Defininf a standard for naming experiments, models and/or tags can be extremely useful.
+  * You can also restrict access to artifacts by using different S3 buckets living in separate AWS accounts. You may do this by setting up a separate artifact store on each experiment.
+
+## Limitations of running a remote MLflow server
+
+You should also keep the following limitations in mind when deciding to use MLflow:
+
+* **Authentication and Users**: like we mentioned in the previous section, the open source version of MLflow lacks user management and authentication, so you need to provide your own solutions as previously discussed.
+  * Paid MLflow distributions such as Databricks do provide these features.
+* **Data versioning**: to ensure full experiment reproducibility we need to version the data used to train the model, but MLflow does not provide a built-in solution for data tracking.
+  * There are workarounds such as tracking a folder path as an artifact or tracking file hashes, but they are not optimal.
+* **Model/Data monitoring and alerting**: this falls outside the scope of MLflow but some people use MLflow for tracking models in production, although there are better tools more suited for this.
+
+## Alternatives to MLflow
+
+There are multiple alternatives to MLflow that you or your team may prefer:
+
+* [Neptune](https://neptune.ai/)
+* [Comet](https://www.comet.com/site/)
+* [Weights & Biases](https://wandb.ai/site)
+* And more...
+
+Even though MLflow is one of the most used libraries available, other tools may offer (in either free or paid versions) features which are not available in MLflow such as detecting "dirty commits" (untracked code changes) when running experiments, tracking artifacts such as audio, video or hardware consumption, etc.
