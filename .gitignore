@@ -1,3 +1,7 @@
 *.parquet
 *.db
 *.bin
+*.pkl
+
+2_experiment/homework/artifacts
+2_experiment/homework/mlruns
